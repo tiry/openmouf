@@ -13,6 +13,7 @@ Pitch_Angle = 25 * sin($t * 360);
 Yaw_Angle =  45 * cos($t * 360); 
 Roll_Angle =  20 * cos($t * 360 + 90); 
 $fn=60;
+
 module servo(angle=0, double_arm=false) {
     
     mg90s();
@@ -20,57 +21,6 @@ module servo(angle=0, double_arm=false) {
     translate([-(MG90S_BLOCK_SIZE.x/2-MG90S_FULL_SIZE.y/2),0,MG90S_FULL_SIZE.z]) rotate([0,0,angle]) if (double_arm) {servo_arm_dual();} else {servo_arm();};
 }
 
-module mid_servo(angle=0, angle2=0, double_arm=false) {
-    
-    
-    difference() {
-    union() {
-        translate([-0,0,-20]) {
-            color("red") rounded_cube([50,MG90S_FULL_SIZE.y,5], center=true, r=2);
-        }
-        translate([-20,0,0]) {
-             color("red")  cube([4,MG90S_FULL_SIZE.y,40], center=true);
-        }
-    }
-    
-    rotate([0,90,0]) translate( [-4.8,0,-48]) cylinder(h=80, r=3+MARGIN, center=false);
-}
-    
-    translate([-10,0,0]){
-        translate([7,0,-16]) {
-            cube([22,MG90S_FULL_SIZE.y,3], center=true);
-        }
-        rotate([0,90,0]) {
-            mg90s();
-            translate( [0,0,-2]) gear_mount();
-            translate([-(MG90S_BLOCK_SIZE.x/2-MG90S_FULL_SIZE.y/2),0,MG90S_FULL_SIZE.z]) rotate([0,0,angle]) {
-                if (double_arm) {servo_arm_dual();} else {servo_arm();};
-            
-            color("blue") union() {    
-            translate( [0,0,-48]) cylinder(h=8, r=3, center=false);
-            translate([5,0,-23]) rotate([0,-90,0])  union() {
-                translate([-24,0,15]) {
-                    rounded_cube([4,MG90S_FULL_SIZE.y,30], center=true, r=2);
-                }
-                translate([0.5,0,28]) {
-                    rounded_cube([53,MG90S_FULL_SIZE.y,4], center=true, r=2);
-                }
-
-                translate([25,0,15]) {
-                    rounded_cube([4,MG90S_FULL_SIZE.y,30], center=true, r=2);
-                }
-            }
-            }
-            
-            rotate([90,0,0]) translate([-40,-22,-10]) head_servo(angle=angle2);
-            
-            }
-            
-        
-        }
-        
-    }
-}
 
 
 module feet_servo(angle=0, double_arm=true) {
@@ -121,13 +71,65 @@ module head_servo(angle=0, double_arm=false) {
     }
 }
 
-
-//servo(angle=30, double_arm=false);
-//servo(angle=30, double_arm=true);
-
-feet_servo(angle=Roll_Angle);
-rotate([0,0,Roll_Angle]) {
-        translate([-4,2,55])
-    mid_servo(angle=Pitch_Angle, angle2=Yaw_Angle);
-    //translate([0,0,100]) rotate([Pitch_Angle,0,0]) head_servo();
+module mouf_sk(pitch=0, yaw=0, roll=0, double_arm=false) {
+    
+    feet_servo(angle=roll);
+    rotate([0,0,Roll_Angle]) 
+    translate([-4,2,55])
+    
+    {
+    difference() {
+    union() {
+        translate([-0,0,-20]) {
+            color("red") rounded_cube([50,MG90S_FULL_SIZE.y,5], center=true, r=2);
+        }
+        translate([-20,0,0]) {
+             color("red")  cube([4,MG90S_FULL_SIZE.y,40], center=true);
+        }
+    }
+    
+    rotate([0,90,0]) translate( [-4.8,0,-48]) cylinder(h=80, r=3+MARGIN, center=false);
 }
+    
+    translate([-10,0,0]){
+        translate([7,0,-16]) {
+            cube([22,MG90S_FULL_SIZE.y,3], center=true);
+        }
+        rotate([0,90,0]) {
+            mg90s();
+            translate( [0,0,-2]) gear_mount();
+            translate([-(MG90S_BLOCK_SIZE.x/2-MG90S_FULL_SIZE.y/2),0,MG90S_FULL_SIZE.z]) rotate([0,0,pitch]) {
+                if (double_arm) {servo_arm_dual();} else {servo_arm();};
+            
+            color("blue") union() {    
+            translate( [0,0,-48]) cylinder(h=8, r=3, center=false);
+            translate([5,0,-23]) rotate([0,-90,0])  union() {
+                translate([-24,0,15]) {
+                    rounded_cube([4,MG90S_FULL_SIZE.y,30], center=true, r=2);
+                }
+                translate([0.5,0,28]) {
+                    rounded_cube([53,MG90S_FULL_SIZE.y,4], center=true, r=2);
+                }
+
+                translate([25,0,15]) {
+                    rounded_cube([4,MG90S_FULL_SIZE.y,30], center=true, r=2);
+                }
+            }
+            }
+            
+            rotate([90,0,0]) translate([-40,-22,-10]) head_servo(angle=yaw);
+            
+            }
+            
+        
+        }
+        
+    }
+}
+}
+
+
+
+mouf_sk(pitch=Pitch_Angle, yaw=Yaw_Angle, roll=Roll_Angle);
+    //translate([0,0,100]) rotate([Pitch_Angle,0,0]) head_servo();
+
