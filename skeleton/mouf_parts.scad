@@ -56,7 +56,7 @@ module head() {
 }
 
 module t_up() {
-    color("blue") union() {    
+    union() {    
         translate([0, 0, -48]) cylinder(h=8, r=3, center=false);
         translate([5, 0, -23]) rotate([0, -90, 0]) union() {
             translate([-24, 0, 15]) 
