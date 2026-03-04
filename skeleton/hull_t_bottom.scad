@@ -23,6 +23,8 @@ module hull_t_bottom() {
         rotate([0,0,0]) translate([-12,0,10]) cylinder(h=10, r=3);
         rotate([90,0,0]) translate([-14,-12,-20]) cylinder(h=40, r=3);
     }
+    
+    rotate([90,90,0]) translate([-20,-10,6]) base();
 }    
 
-hull_t_bottom();
+//hull_t_bottom();

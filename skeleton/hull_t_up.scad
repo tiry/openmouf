@@ -4,7 +4,7 @@ include <arm.scad>
 include <mouf_parts.scad>
 
 
-rotate([-90,0,0]) translate([10,-15,-40])  
+module hull_t_up() {
     {
      //color("green") translate([-51.2,-10,-45]) cube([MG_MOUNT_SIZE.x-2*MG_MOUNT_W,20,50]);
      t_up(); 
@@ -22,3 +22,6 @@ rotate([-90,0,0]) translate([10,-15,-40])
         rotate([90,0,0]) translate([-35.2,-22,-20]) cylinder(30, r=4);
         }
     }
+}
+
+//hull_t_up();
