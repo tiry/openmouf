@@ -1,0 +1,2 @@
+sudo apt-get install python3-smbus
+sudo apt-get install p7zip-full
