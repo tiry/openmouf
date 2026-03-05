@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openmouf"
+version = "0.1.0"
+description = "Open source Mouf robot control and visualization"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Mouf Team", email = "team@mouf.local"}
+]
+
+dependencies = [
+    "RPi.GPIO",
+    "numpy",
+    "shapely"
+]
+
+[project.optional-dependencies]
+viz = [
+    "matplotlib",
+    "scipy"
+]
+
+[tool.setuptools]
+packages = ["mouf", "moufctl"]
+
+[tool.setuptools.package-dir]
+mouf = "mouf"
+moufctl = "moufctl"
