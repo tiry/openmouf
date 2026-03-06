@@ -22,7 +22,9 @@ dependencies = [
 [project.optional-dependencies]
 viz = [
     "matplotlib",
-    "scipy"
+    "scipy",
+    "pygame",
+    "PyOpenGL"
 ]
 
 [tool.setuptools]

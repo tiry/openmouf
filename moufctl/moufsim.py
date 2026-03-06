@@ -5,7 +5,8 @@ from typing import Callable, Optional
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-
+from scipy.spatial import ConvexHull
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 class FlattenedSphere:
     """A flattened ellipsoid (sphere scaled on Y axis)."""
@@ -26,8 +27,8 @@ class FlattenedSphere:
         # x = r * sin(v) * cos(u)
         # y = r * sin(v) * sin(u)  
         # z = r * cos(v)
-        u = np.linspace(0, 2 * np.pi, 30)
-        v = np.linspace(0, np.pi, 20)
+        u = np.linspace(0, 2 * np.pi, 12)
+        v = np.linspace(0, np.pi, 12)
         self.x = radius * np.outer(np.sin(v), np.cos(u))
         self.y = radius * np.outer(np.sin(v), np.sin(u))
         self.z = radius * flatten_factor * np.outer(np.cos(v), np.ones_like(u))
@@ -35,80 +36,42 @@ class FlattenedSphere:
 
 
 class MoufSim3D:
-    """
-    3D visualization of 4 flattened spheres representing Mouf robot segments.
-    
-    Spheres are aligned on the X axis with relative rotations:
-    - Sphere 1: Reference (no rotation)
-    - Sphere 2: Rolls relative to Sphere 1
-    - Sphere 3: Pitch relative to Sphere 2 (accumulating roll)
-    - Sphere 4: Yaw relative to Sphere 3 (accumulating roll+pitch)
-    """
-    
     def __init__(
         self,
         spacing: float = 1.0,
         radius: float = 1.0,
-        flatten: float = 0.4
+        flatten: float = 0.4,
+        show_hull: bool = True  # New boolean flag
     ) -> None:
-        """
-        Initialize the simulation.
-        
-        Args:
-            spacing: Distance between sphere centers on X axis
-            radius: Base sphere radius
-            flatten: Y-axis flatten factor (1/4 = 0.25)
-        """
         self.spacing = spacing
         self.radius = radius
         self.flatten = flatten
-        
-        # Create 4 spheres positioned along X axis
-        self.positions = [
-            -1.5 * spacing,  # Sphere 1 (reference)
-            -0.5 * spacing,  # Sphere 2
-             0.5 * spacing,  # Sphere 3
-             1.5 * spacing,  # Sphere 4
-        ]
+        self.show_hull = show_hull # Store the flag
         
         self.spheres = [FlattenedSphere(radius, flatten) for _ in range(4)]
         
         # Setup figure
         self.fig = plt.figure(figsize=(12, 8))
         self.ax = self.fig.add_subplot(111, projection='3d')
-        self.ax.set_xlim(-5, 5)
-        self.ax.set_ylim(-2, 2)
-        self.ax.set_zlim(-2, 2)
-        self.ax.set_xlabel('X')
-        self.ax.set_ylabel('Y')
-        self.ax.set_zlabel('Z')
-        self.ax.set_title("Mouf 3D Simulation")
+        self.ax.set_xlim(-2, 2)
+        self.ax.set_ylim(-1.5, 1.5)
+        self.ax.set_zlim(-1, 1)
         self.ax.set_aspect('equal')
-        #self.ax.view_init(elev=20, azim=45)
 
-        # Default rotation functions (return 0)
-        self.roll_func: Callable[[float], float] = lambda t: 0.0
-        self.pitch_func: Callable[[float], float] = lambda t: 0.0
-        self.yaw_func: Callable[[float], float] = lambda t: 0.0
-        
-        # Pre-computed rotation arrays for smooth animation
-        self._times: np.ndarray = np.linspace(0, 1, 101)
-        self._roll_vals: np.ndarray = np.zeros(101)
-        self._pitch_vals: np.ndarray = np.zeros(101)
-        self._yaw_vals: np.ndarray = np.zeros(101)
-        
-        # Initial plot
         self.plots = []
-        self._draw_spheres(0.0, 0.0, 0.0)
-
+        
+        # Default rotation logic
+        self.roll_func = lambda t: 0.0
+        self.pitch_func = lambda t: 0.0
+        self.yaw_func = lambda t: 0.0
+        self._times = np.linspace(0, 1, 101)
 
     def _draw_spheres(self, roll: float, pitch: float, yaw: float) -> None:
-        """Draw all spheres with segments pivoting from their connection points."""
+        """Draw spheres and optionally a convex hull wrapper."""
         for plot in self.plots:
             plot.remove()
         self.plots = []
 
-        # 1. Rotation Matrix Helper (Standard intrinsic Tait-Bryan)
         def get_r_matrix(r, p, y):
             cr, sr = np.cos(r), np.sin(r)
             cp, sp = np.cos(p), np.sin(p)
@@ -118,49 +81,63 @@ class MoufSim3D:
             Rz = np.array([[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]])
             return Rz @ Ry @ Rx
 
-        # Define rotations relative to previous segment
         local_rots = [
-            get_r_matrix(0, 0, 0),      # Seg 1: Fixed
-            get_r_matrix(roll, 0, 0),   # Seg 2: Rolls on 1
-            get_r_matrix(0, pitch, 0),  # Seg 3: Pitches on 2
-            get_r_matrix(0, 0, yaw),    # Seg 4: Yaws on 3
+            get_r_matrix(0, 0, 0),      
+            get_r_matrix(roll, 0, 0),   
+            get_r_matrix(0, pitch, 0),  
+            get_r_matrix(0, 0, yaw),    
         ]
 
-        # Initial Position (Tail of the first sphere)
-        # We start at -2.0*spacing to center the whole robot roughly at origin
         current_pivot = np.array([-2.0 * self.spacing, 0, 0]) 
         current_R = np.eye(3)
+        
+        # List to collect all points for the hull
+        all_points = []
 
         for i in range(4):
-            # Update the global orientation for this segment
             current_R = current_R @ local_rots[i]
             
-            # THE KEY FIX: Offset the mesh so the PIVOT point (tail) is at (0,0,0)
-            # Since positions are centers, we move the mesh by half-spacing to the right
-            # so the left edge of the sphere sits at (0,0,0)
+            # Pivot offset: Left edge of sphere at (0,0,0)
             mesh_x = self.spheres[i].x + (self.spacing / 2)
             mesh_y = self.spheres[i].y
             mesh_z = self.spheres[i].z
             
-            # Apply cumulative rotation to the offset mesh
             coords = np.vstack([mesh_x.flatten(), mesh_y.flatten(), mesh_z.flatten()])
             rotated_coords = (current_R @ coords).reshape(3, *mesh_x.shape)
             
-            # Translate to the current pivot point in world space
             x_final = rotated_coords[0] + current_pivot[0]
             y_final = rotated_coords[1] + current_pivot[1]
             z_final = rotated_coords[2] + current_pivot[2]
 
-            # Render
-            plot = self.ax.plot_surface(x_final, y_final, z_final, 
-                                      alpha=0.6, color=plt.cm.cool(i / 3),
-                                      antialiased=False)
-            self.plots.append(plot)
+            # Add these points to our hull cloud
+            if self.show_hull:
+                sphere_pts = np.vstack([x_final.flatten(), y_final.flatten(), z_final.flatten()]).T
+                all_points.append(sphere_pts)
 
-            # Update the pivot point for the NEXT segment
-            # The next pivot is exactly 'spacing' units away along the current X-axis
+            # Draw the actual spheres (semi-transparent)
+            if not self.show_hull: 
+                plot = self.ax.plot_surface(x_final, y_final, z_final, 
+                                      alpha=0.3, color=plt.cm.cool(i / 3),
+                                      antialiased=False)
+                self.plots.append(plot)
+
+            # Move pivot for next segment
             joint_vector = current_R @ np.array([self.spacing, 0, 0])
             current_pivot = current_pivot + joint_vector
+
+        # --- HULL LOGIC ---
+        if self.show_hull and len(all_points) > 0:
+            points_cloud = np.vstack(all_points)
+            hull = ConvexHull(points_cloud)
+            
+            # Create triangles for the hull surface
+            for simplex in hull.simplices:
+                pts = points_cloud[simplex]
+                # Using Poly3DCollection for better performance in animations
+                poly = Poly3DCollection([pts], alpha=0.3, facecolor='grey', edgecolor='darkgrey')
+                self.ax.add_collection3d(poly)
+                self.plots.append(poly)
+
 
     def _rotate_around_point(
         self,
@@ -297,12 +274,12 @@ class MoufSim3D:
 
 def demo() -> None:
     """Run a demo animation with sinusoidal rotations."""
-    sim = MoufSim3D(spacing=0.5, radius=1.0, flatten=0.5)
+    sim = MoufSim3D(spacing=0.5, radius=1.0, flatten=0.5, show_hull=True)
     
     # Set rotation functions using lambdas
     roll = lambda t: np.sin(t * 2 * np.pi) * 0.2   # One cycle, ±0.5 rad
-    pitch = lambda t: np.sin(t * 2 * np.pi) * 0.3  # One cycle, ±0.3 rad
-    yaw = lambda t: np.sin(t * 4 * np.pi) * 0.4    # Two cycles, ±0.4 rad
+    pitch = lambda t: np.sin(t * 2 * np.pi) * 0.8  # One cycle, ±0.3 rad
+    yaw = lambda t: np.sin(t * 4 * np.pi) * 1   # Two cycles, ±0.4 rad
     
     sim.set_rotation_functions(roll, pitch, yaw)
     sim.animate()
