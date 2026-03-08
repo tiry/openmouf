@@ -2,7 +2,7 @@
 
 import threading
 import time
-from typing import Optional
+from typing import Optional, Type
 
 # --- SETTINGS ---
 STEP_SIZE: float = 2.0
@@ -12,11 +12,25 @@ SERVO_SPEED_PER_DEG: float = 0.11 / 60
 # Small buffer for inertia and I2C latency
 MECHANICAL_LAG: float = 0.05
 
+from mouf.driver.interpolator import (
+    Interpolator, 
+    LinearInterpolator, 
+    DEFAULT_INTERPOLATOR_CLASS
+)
+
 
 class ServoDriver:
     """Thread-safe servo driver with position control."""
     
-    def __init__(self, channel: int, initial_angle: float = 0, offset: float = 0) -> None:
+    def __init__(
+        self, 
+        channel: int, 
+        initial_angle: float = 0, 
+        offset: float = 0,
+        interpolator_class: Optional[Type[Interpolator]] = None,
+        min_angle: float = 0,
+        max_angle: float = 180
+    ) -> None:
         """
         Initialize a servo on a given channel.
         
@@ -25,11 +39,21 @@ class ServoDriver:
             initial_angle: Starting angle in degrees
             offset: Calibration offset. If servo is at 90 when it should be 0,
                     set offset to -90.
+            interpolator_class: Interpolator class to use for movement.
+                               Defaults to LinearInterpolator.
+            min_angle: Minimum allowed angle in degrees (default 0)
+            max_angle: Maximum allowed angle in degrees (default 180)
         """
         self.channel: int = channel
         self.offset: float = offset
+        self.min_angle: float = min_angle
+        self.max_angle: float = max_angle
         self.current_angle: float = initial_angle
         self._stop_event: threading.Event = threading.Event()
+        
+        # Initialize interpolator
+        interpolator_cls = interpolator_class if interpolator_class is not None else DEFAULT_INTERPOLATOR_CLASS
+        self._interpolator: Interpolator = interpolator_cls(step_size=STEP_SIZE)
         
         # Initialize at the corrected position
         self.move(initial_angle)
@@ -42,17 +66,20 @@ class ServoDriver:
 
     def move(self, angle: float, wait: bool = False) -> None:
         """
-        Move to an angle, adjusted by the offset.
+        Move to an angle, adjusted by the offset and clamped to min/max.
         
         Args:
-            angle: Target logical angle in degrees (0-180)
+            angle: Target logical angle in degrees
             wait: If True, blocks execution until the servo physically arrives.
         """
         # Calculate travel distance BEFORE updating current_angle
         distance = abs(angle - self.current_angle)
         
+        # Clamp angle to min/max range
+        clamped_angle: float = max(self.min_angle, min(self.max_angle, angle))
+        
         # Apply calibration offset
-        adjusted_angle: float = angle + self.offset
+        adjusted_angle: float = clamped_angle + self.offset
         
         # Keep hardware within safe physical bounds (0-180)
         safe_angle: float = max(0, min(180, adjusted_angle))
@@ -62,41 +89,14 @@ class ServoDriver:
         
         self.send_PWM(self.channel, pulse)
         
-        # Update logical state
-        self.current_angle = angle
+        # Update logical state (use clamped angle, not original)
+        self.current_angle = clamped_angle
 
         # Physical Sync Logic
         if wait and distance > 0:
             # Wait for (deg * speed) + overhead
             travel_time = (distance * SERVO_SPEED_PER_DEG) + MECHANICAL_LAG
             time.sleep(travel_time)
-
-    def _threaded_loop(
-        self, 
-        target_angle: float, 
-        start_angle: Optional[float], 
-        speed_per_deg: float
-    ) -> None:
-        """Internal threaded movement loop."""
-        local_pos: float = start_angle if start_angle is not None else self.current_angle
-        distance: float = target_angle - local_pos
-        
-        if abs(distance) < STEP_SIZE:
-            self.move(target_angle)
-            return
-
-        direction: int = 1 if distance > 0 else -1
-        total_steps: int = int(abs(distance) / STEP_SIZE)
-        step_delay: float = speed_per_deg * STEP_SIZE
-
-        for _ in range(total_steps):
-            if self._stop_event.is_set():
-                return
-            local_pos += (direction * STEP_SIZE)
-            self.move(local_pos, wait=False)
-            time.sleep(step_delay)
-
-        self.move(target_angle, wait=True)
 
     def move_sequence(
         self, 
@@ -125,7 +125,7 @@ class ServoDriver:
                         item if isinstance(item, tuple) 
                         else (item, 0)
                     )
-                    self._threaded_loop(target, self.current_angle, speed_per_deg)
+                    self._interpolator.drive(self, target, self.current_angle, speed_per_deg)
                     if pause > 0:
                         time.sleep(pause)
         

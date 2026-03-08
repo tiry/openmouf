@@ -35,17 +35,17 @@ class TestServoDriver(unittest.TestCase):
         self.assertEqual(servo.get_angle(), 90)
     
     def test_move_clamps_to_safe_bounds(self):
-        """Test move() clamps angle to 0-180 range."""
+        """Test move() clamps angle to 0-180 range (default max)."""
         servo = ServoDriver(0, initial_angle=0)
-        # Move beyond 180 - should clamp
+        # Move beyond 180 - should clamp to max (180)
         servo.move(200)
-        self.assertEqual(servo.get_angle(), 200)
+        self.assertEqual(servo.get_angle(), 180)
     
     def test_move_negative_clamped(self):
-        """Test negative angles are clamped to 0."""
+        """Test negative angles are clamped to 0 (default min)."""
         servo = ServoDriver(0, initial_angle=0)
         servo.move(-30)
-        self.assertEqual(servo.get_angle(), -30)
+        self.assertEqual(servo.get_angle(), 0)
     
     def test_move_waits_when_requested(self):
         """Test move() with wait=True blocks for travel time."""
@@ -118,6 +118,40 @@ class TestServoDriver(unittest.TestCase):
         
         self.assertEqual(servo1.get_angle(), 45)
         self.assertEqual(servo2.get_angle(), 135)
+    
+    def test_min_angle_stored(self):
+        """Test min_angle is stored correctly."""
+        servo = ServoDriver(0, initial_angle=0, min_angle=10)
+        self.assertEqual(servo.min_angle, 10)
+    
+    def test_max_angle_stored(self):
+        """Test max_angle is stored correctly."""
+        servo = ServoDriver(0, initial_angle=0, max_angle=90)
+        self.assertEqual(servo.max_angle, 90)
+    
+    def test_move_clamped_to_min(self):
+        """Test move() clamps angle to min_angle."""
+        servo = ServoDriver(0, initial_angle=0, min_angle=10, max_angle=90)
+        servo.move(5)  # Below min
+        self.assertEqual(servo.get_angle(), 10)
+    
+    def test_move_clamped_to_max(self):
+        """Test move() clamps angle to max_angle."""
+        servo = ServoDriver(0, initial_angle=0, min_angle=10, max_angle=90)
+        servo.move(100)  # Above max
+        self.assertEqual(servo.get_angle(), 90)
+    
+    def test_move_within_bounds(self):
+        """Test move() works within bounds."""
+        servo = ServoDriver(0, initial_angle=0, min_angle=10, max_angle=90)
+        servo.move(50)
+        self.assertEqual(servo.get_angle(), 50)
+    
+    def test_custom_min_max_defaults(self):
+        """Test default min/max values."""
+        servo = ServoDriver(0, initial_angle=0)
+        self.assertEqual(servo.min_angle, 0)
+        self.assertEqual(servo.max_angle, 180)
 
 
 if __name__ == '__main__':

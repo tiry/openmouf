@@ -16,7 +16,8 @@ authors = [
 dependencies = [
     "RPi.GPIO",
     "numpy",
-    "shapely"
+    "shapely",
+    "click"
 ]
 
 [project.optional-dependencies]
