@@ -4,6 +4,7 @@ import click
 
 from mouf.driver.Servo import ServoDriver
 
+from mouf.driver.ServoMG90S import Servo, initialize_hardware
 
 @click.command()
 @click.argument('angle', type=float)
@@ -17,7 +18,10 @@ def servo(angle, channel, offset, min_angle, max_angle, wait):
     
     ANGLE: Target angle in degrees.
     """
-    servo = ServoDriver(
+
+    initialize_hardware()
+
+    servo = Servo(
         channel=channel,
         offset=offset,
         min_angle=min_angle,
