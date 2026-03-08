@@ -5,8 +5,6 @@ import time
 from typing import Optional
 
 # --- SETTINGS ---
-I2C_ADDRESS: int = 0x40
-PWM_FREQ: int = 50
 STEP_SIZE: float = 2.0
 # PHYSICAL CONSTANTS
 # 0.11s per 60 degrees = 0.001833s per degree
@@ -14,22 +12,8 @@ SERVO_SPEED_PER_DEG: float = 0.11 / 60
 # Small buffer for inertia and I2C latency
 MECHANICAL_LAG: float = 0.05
 
-# Module-level globals
-_BUS_LOCK: threading.RLock = threading.RLock()
-_GLOBAL_PWM_DRIVER: Optional["PCA9685"] = None
 
-
-def initialize_hardware() -> None:
-    """Initialize the global PWM driver hardware."""
-    global _GLOBAL_PWM_DRIVER
-    with _BUS_LOCK:
-        if _GLOBAL_PWM_DRIVER is None:
-            from mouf.driver.PCA9685 import PCA9685
-            _GLOBAL_PWM_DRIVER = PCA9685(I2C_ADDRESS, debug=False)
-            _GLOBAL_PWM_DRIVER.setPWMFreq(PWM_FREQ)
-
-
-class Servo:
+class ServoDriver:
     """Thread-safe servo driver with position control."""
     
     def __init__(self, channel: int, initial_angle: float = 0, offset: float = 0) -> None:
@@ -49,6 +33,12 @@ class Servo:
         
         # Initialize at the corrected position
         self.move(initial_angle)
+
+    def send_PWM(self, channel, pulse):
+        print(f"Channel {channel} => {pulse}")
+
+    def get_angle(self):
+        return  self.current_angle
 
     def move(self, angle: float, wait: bool = False) -> None:
         """
@@ -70,9 +60,7 @@ class Servo:
         # Convert angle to pulse width (500-2500us for 0-180 degrees)
         pulse: int = int(safe_angle * (2000 / 180) + 500)
         
-        with _BUS_LOCK:
-            if _GLOBAL_PWM_DRIVER is not None:
-                _GLOBAL_PWM_DRIVER.setServoPulse(self.channel, pulse)
+        self.send_PWM(self.channel, pulse)
         
         # Update logical state
         self.current_angle = angle
@@ -147,13 +135,9 @@ class Servo:
 
 
 if __name__ == '__main__':
-    initialize_hardware()
-    
-    # CALIBRATION EXAMPLE:
-    # If Servo 0 is perfect, offset = 0
-    # If Servo 1 sits at 90 when you want 0, offset = -90
-    s1: Servo = Servo(0, initial_angle=0, offset=0)
-    s2: Servo = Servo(1, initial_angle=0, offset=-90)
+  
+    s1: Servo = ServoDriver(0, initial_angle=0, offset=0)
+    s2: Servo = ServoDriver(1, initial_angle=0, offset=-90)
 
     print("Both servos should now be at their respective '0' positions...")
     time.sleep(2)

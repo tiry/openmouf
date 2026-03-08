@@ -1,133 +1,112 @@
+"""Mouf 3D simulation using OpenGL."""
+
 import pygame
 from pygame.locals import *
 from OpenGL.GL import *
 from OpenGL.GLU import *
+
 import numpy as np
 
+from moufctl.gl import SphereRenderer, HullRenderer, Viewer, MoufShape
+
+
+def default_servo_positions(t: float) -> tuple[float, float, float]:
+    """
+    Default servo position calculation.
+    
+    Args:
+        t: Time value
+        
+    Returns:
+        Tuple of (roll, pitch, yaw) in degrees
+    """
+    roll = np.degrees(np.sin(t*0.1) * 0.2)
+    pitch = abs(np.degrees(np.cos(t * 0.3) * 0.5))
+    yaw = np.degrees(np.sin(t * 0.5) * 0.4)
+    return roll, pitch, yaw
+
+
 class MoufSimOpenGL:
-    def __init__(self, spacing=0.8, radius=1, flatten=0.5):
+    # Class-level registry for servo position functions
+    _servo_position_func = default_servo_positions
+    
+    @classmethod
+    def register_servo_positions(cls, func):
+        """Register a custom servo position function."""
+        cls._servo_position_func = func
+        return func
+    
+    @classmethod
+    def get_servo_positions(cls, t: float) -> tuple[float, float, float]:
+        """Get servo positions using registered function."""
+        return cls._servo_position_func(t)
+    def __init__(self, spacing=0.8, radius=1, flatten=0.5, show_spheres=False, show_hull=True):
         self.spacing = spacing
         self.radius = radius
         self.flatten = flatten
+        self.show_spheres = show_spheres
+        self.show_hull = show_hull
         
-        # Camera State
-        self.angle_x = 20.0
-        self.angle_y = 45.0
-        self.distance = -12.0
-        self.mouse_down = False
+        # Initialize components
+        self.sphere_renderer = SphereRenderer(radius, flatten)
+        self.hull_renderer = HullRenderer()
+        self.viewer = Viewer()
+        self.mouf_shape = MoufShape(spacing, radius, self.sphere_renderer, self.hull_renderer)
+        
+        self.colors = [(0.2, 0.6, 1.0), (0.2, 0.9, 0.6), (0.9, 0.8, 0.2), (1.0, 0.4, 0.4)]
         
         pygame.init()
         self.display = (1200, 800)
         pygame.display.set_mode(self.display, DOUBLEBUF | OPENGL)
-        pygame.display.set_caption("Mouf 3D - GPU Accelerated")
-
-        # Initial Projection
-        glMatrixMode(GL_PROJECTION)
-        gluPerspective(45, (self.display[0] / self.display[1]), 0.1, 100.0)
-        glMatrixMode(GL_MODELVIEW)
         
-        # Hardware acceleration settings
-        glEnable(GL_DEPTH_TEST)
-        glEnable(GL_LIGHTING)
-        glEnable(GL_LIGHT0)
-        glEnable(GL_COLOR_MATERIAL)
-        glColorMaterial(GL_FRONT, GL_AMBIENT_AND_DIFFUSE)
-
-        # Light Setup
-        glLightfv(GL_LIGHT0, GL_POSITION, (5, 5, 10, 1))
-        glLightfv(GL_LIGHT0, GL_DIFFUSE, (1.0, 1.0, 1.0, 1))
-
-    def draw_segment(self, color):
-        """Draws a sphere centered on its pivot point, flattened vertically."""
-        glColor3f(*color)
-        glPushMatrix()
+        # OpenGL Setup
+        self.viewer.setup_camera(self.display)
         
-        # 1. Move the sphere so its left edge is at the joint origin
-        # (This remains on X-axis)
-        glTranslatef(self.radius, 0, 0)
-        
-        # 2. Apply the flattening to the UP axis (Y)
-        glScalef(1.0, self.flatten, 1.0)
-        
-        # 3. Create and draw the quadric
-        quad = gluNewQuadric()
-        gluQuadricNormals(quad, GLU_SMOOTH)
-        gluSphere(quad, self.radius, 32, 32)
-        
-        glPopMatrix()
-
-    def handle_input(self):
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT: return False
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1: self.mouse_down = True
-                if event.button == 4: self.distance += 0.5 # Scroll Up
-                if event.button == 5: self.distance -= 0.5 # Scroll Down
-            if event.type == pygame.MOUSEBUTTONUP:
-                if event.button == 1: self.mouse_down = False
-            if event.type == pygame.MOUSEMOTION and self.mouse_down:
-                dx, dy = event.rel
-                self.angle_y += dx * 0.5
-                self.angle_x += dy * 0.5
-        return True
+        # Material settings for hull
+        if show_hull and not show_spheres:
+            glMaterialfv(GL_FRONT, GL_SPECULAR, (1.0, 1.0, 1.0, 1.0))
+            glMaterialf(GL_FRONT, GL_SHININESS, 50.0)
 
     def run(self):
         clock = pygame.time.Clock()
         t = 0
-        colors = [(0.2, 0.6, 1.0), (0.2, 0.9, 0.6), (0.9, 0.8, 0.2), (1.0, 0.4, 0.4)]
 
         while True:
-            if not self.handle_input(): break
-
+            if not self.viewer.handle_input(pygame.event.get()): break
+            
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
             glLoadIdentity()
-            
-            # Global Camera Transform
-            glTranslatef(0, 0, self.distance)
-            glRotatef(self.angle_x, 1, 0, 0)
-            glRotatef(self.angle_y, 0, 1, 0)
+            glTranslatef(0, 0, self.viewer.distance)
+            glRotatef(self.viewer.angle_x, 1, 0, 0)
+            glRotatef(self.viewer.angle_y, 0, 1, 0)
+            self.viewer.draw_grid()
 
-            # Draw Ground Grid
-            self.draw_grid()
-
-            # Animation State (Radians -> Degrees for OpenGL)
+            # Animation
             t += 0.03
-            roll  = np.degrees(np.sin(t) * 0.5)
-            pitch = 0*np.degrees(np.cos(t * 0.7) * 0.6)
-            yaw   = 0*np.degrees(np.sin(t * 1.2) * 0.4)
+            roll, pitch, yaw = self.get_servo_positions(t)
 
-            # --- CHAINED FORWARD KINEMATICS ---
-            glPushMatrix()
-            # Start at the far left
-            glTranslatef(-1.5 * self.spacing, 0, 0)
-
-            for i in range(4):
-                # 1. Apply Rotation to this joint (affects this and all following)
-                if i == 1: glRotatef(roll, 1, 0, 0)
-                if i == 2: glRotatef(pitch, 0, 1, 0)
-                if i == 3: glRotatef(yaw, 0, 0, 1)
-
-                # 2. Draw the segment at current transformed origin
-                self.draw_segment(colors[i])
-
-                # 3. Translate to the end of this segment for the next joint
-                glTranslatef(self.spacing, 0, 0)
-
-            glPopMatrix()
+            # Render Mouf shape
+            self.mouf_shape.render(
+                roll, pitch, yaw,
+                self.show_spheres,
+                self.show_hull,
+                self.colors
+            )
             
             pygame.display.flip()
             clock.tick(60)
         pygame.quit()
 
-    def draw_grid(self):
-        glDisable(GL_LIGHTING)
-        glBegin(GL_LINES)
-        glColor3f(0.2, 0.2, 0.2)
-        for i in range(-10, 11):
-            glVertex3f(i, -2, -10); glVertex3f(i, -2, 10)
-            glVertex3f(-10, -2, i); glVertex3f(10, -2, i)
-        glEnd()
-        glEnable(GL_LIGHTING)
 
 if __name__ == "__main__":
-    MoufSimOpenGL().run()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Mouf 3D OpenGL Simulation")
+    parser.add_argument("--sphere", action="store_true", help="Show spheres")
+    parser.add_argument("--hull", action="store_true", help="Show hull")
+    args = parser.parse_args()
+    
+    if not args.sphere and not args.hull:
+        parser.print_help()
+    else:
+        MoufSimOpenGL(show_spheres=args.sphere, show_hull=args.hull).run()
